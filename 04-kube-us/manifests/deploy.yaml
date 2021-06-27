@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zone-ingress
+  namespace: zoneprinter
+  labels:
+    app: zoneprinter
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: zoneprinter
+  template:
+    metadata:
+      labels:
+        app: zoneprinter
+    spec:
+      containers:
+      - name: frontend
+        image: gcr.io/google-samples/zone-printer:0.2
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: "app"
+                      operator: In
+                      values:
+                      - zoneprinter
+                topologyKey: "kubernetes.io/hostname"  

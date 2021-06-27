@@ -1,37 +1,15 @@
-# glb-demo
+# gke-multi-cluster-terraform-infra
 
-This is a demo of a container-native multi-cluster global load balancer, with Cloud Armor polices, for Google Cloud Platform (GCP) using Terraform.
+This is a demo of how to setup a Global load balancer across GKE Clusters in Multiple Regions in Google Cloud Platform (GCP) and automate it with Terraform scripts. 
 
-It is designed to accompany a post on Jetstack's blog (coming soon).
+**This is a demo only, not for Production use.**
+Its not secure and robust to run as is in Prod or similar environments, this is only designed for quickly showing
+how to set it up and how Resiliency and failover works. 
+Make sure you cleanup all resources once done as mentioned in the '06-cleanup' folder.
 
-**This is a demo only.**
-It should not be used 'as is' in production, or any other shared, long lived, environments.
-It is just designed to quickly show off and test what a global load balancer can do.
-Many of the configurations and procedures used are not secure or robust.
-
-## Requirements
-
-* The Google Cloud SDK (`gcloud` command)
-* `kubectl` command
-* `terraform` command, version `0.12.x`
-
-## Step 00 - Auth
-
-Ensure the `gcloud` command is up to date and logged in using the correct Google account and project.
-Then generate credentials for Terraform.
-This method will set Terraform to use your account.
-This is generally bad practise and Terraform should be set to use a service account.
-
-```
-gcloud auth application-default login
-```
-
-Complete web login in browser, the command output should tell you the location of the credentials file with the message `Credentials saved to file:`.
-Then set the `GOOGLE_CLOUD_KEYFILE_JSON` environment variable to point to the credentials file created, for example:
-
-```
-export GOOGLE_CLOUD_KEYFILE_JSON="/Users/wwwil/.config/gcloud/application_default_credentials.json"
-```
+## Step 00 - Credential
+Download the credentila file for service account from GCP and save it in a directory as "service-account.json".
+provide this path in terraform.tfvars file. 
 
 ## Step 01 - Create the Clusters
 
@@ -44,163 +22,38 @@ terraform apply
 
 Ensure the plan looks correct and then enter `yes`.
 
-## Step 02 - Deploy The Apps
+## Step 02 - Register to Hub
 
-Enter the `02-apps/` directory.
-
-Get credentials for the first cluster and apply the manifests for `zone-printer` and `hello-app`.
-
-```
-gcloud container clusters get-credentials glb-demo-eu --region europe-west2
-kubectl apply -f zone-printer.yaml
-kubectl apply -f hello-app.yaml
-```
-
-Repeat this for the second cluster.
-
-```
-gcloud container clusters get-credentials glb-demo-us --region us-central1
-kubectl apply -f zone-printer.yaml
-kubectl apply -f hello-app.yaml
-```
-
-Ensure the Pods are running in both clusters.
-
-```
-kubectl get pods
-NAME                            READY   STATUS    RESTARTS   AGE
-hello-app-858d49df47-88cd7      1/1     Running   0          21s
-hello-app-858d49df47-gcnnz      1/1     Running   0          21s
-hello-app-858d49df47-gcz4c      1/1     Running   0          21s
-hello-app-858d49df47-gfgqr      1/1     Running   0          21s
-hello-app-858d49df47-j64w2      1/1     Running   0          21s
-hello-app-858d49df47-qrg69      1/1     Running   0          21s
-hello-app-858d49df47-smrk6      1/1     Running   0          21s
-hello-app-858d49df47-srt24      1/1     Running   0          21s
-hello-app-858d49df47-xdp2w      1/1     Running   0          21s
-zone-printer-7c9568c559-6klrj   1/1     Running   0          23s
-zone-printer-7c9568c559-8mf4w   1/1     Running   0          23s
-zone-printer-7c9568c559-8pw4p   1/1     Running   0          23s
-zone-printer-7c9568c559-csbvk   1/1     Running   0          23s
-zone-printer-7c9568c559-drktf   1/1     Running   0          23s
-zone-printer-7c9568c559-fmzmq   1/1     Running   0          23s
-zone-printer-7c9568c559-rxsth   1/1     Running   0          23s
-zone-printer-7c9568c559-vp7dr   1/1     Running   0          23s
-zone-printer-7c9568c559-zdpkk   1/1     Running   0          23s
-zoneprinter-546c64f489-lm5vd    1/1     Running   0          21h
-```
-
-## Step 03 - Create the GLB
-
-Enter the `03-glb/` directory.
-
-For each cluster get the name of the network endpoint groups (NEGs) created for the Services deployed.
-The names and zones of these NEGs is added as an annotation to the Service.
-The NEG names need to be supplied to Terraform for use in the load balancer.
-This is achieved here using the input variables, and a template `.tfvars` file.
-
-```
-gcloud container clusters get-credentials glb-demo-eu --region europe-west2
-ZONE_PRINTER_NEG_EU=$(kubectl get service zone-printer -o json | jq '.metadata.annotations["cloud.google.com/neg-status"] | fromjson | .network_endpoint_groups["80"]')
-HELLO_APP_NEG_EU=$(kubectl get service hello-app -o json | jq '.metadata.annotations["cloud.google.com/neg-status"] | fromjson | .network_endpoint_groups["80"]')
-gcloud container clusters get-credentials glb-demo-us --region us-central1
-ZONE_PRINTER_NEG_US=$(kubectl get service zone-printer -o json | jq '.metadata.annotations["cloud.google.com/neg-status"] | fromjson | .network_endpoint_groups["80"]')
-HELLO_APP_NEG_US=$(kubectl get service hello-app -o json | jq '.metadata.annotations["cloud.google.com/neg-status"] | fromjson | .network_endpoint_groups["80"]')
-cp terraform.tfvars.template terraform.tfvars
-sed -i.bak "s|ZONE_PRINTER_NEG_EU|$ZONE_PRINTER_NEG_EU|g" terraform.tfvars
-sed -i.bak "s|ZONE_PRINTER_NEG_US|$ZONE_PRINTER_NEG_US|g" terraform.tfvars
-sed -i.bak "s|HELLO_APP_NEG_EU|$HELLO_APP_NEG_EU|g" terraform.tfvars
-sed -i.bak "s|HELLO_APP_NEG_US|$HELLO_APP_NEG_US|g" terraform.tfvars
-rm -f terraform.tfvars.bak
-```
-
-To support HTTPS the load balancer needs an SSL certificate.
-This is provided to the load balancer HTTPS proxy using a GCP SSL certificate resource, created by Terraform from a certificate and key file.
-Generate a key and self signed certificate to use.
-
-```
-openssl genrsa -out example.key 2048
-openssl req -new -key example.key -out example.csr \
-    -subj "/CN=example.com"
-openssl x509 -req -days 365 -in example.csr -signkey example.key \
-    -out example.crt
-```
-
-Now initialise Terraform, and apply the project files.
+Enter the `02-hub-register/` directory.
 
 ```
 terraform init
 terraform apply
 ```
 
-Ensure the plan looks correct and then enter `yes`.
 
-## Step 04 - Test the GLB
+## Step 03 - Create resources using manifest files for Europe Cluster 
 
-Once Terraform has finished it will output the value of the global IP address it reserved.
-Enter this IP into a browser and you should see the `zone-printer` app, which will show the GCP zone of the instance you are connected to.
-If this does not work you may need to wait a bit longer while the load balancer configuration is propagated by Google's network.
-
-The maximum rate for connections is set very low in the load balancer.
-this should mean that by aggressively refreshing the connection to the IP in the browser you should see the zone you connect to changes.
-This demonstrates the load balancing in effect.
-
-To verify that HTTPS is working prefix the IP address with `https://`.
-This will likely show a warning that the certificate was not recognised as we are using a self signed certificate.
-Ignore the warning and proceed to the page anyway, it should show the `zone-printer` app.
-
-The region shown by `zone-printer` should not change, and should always be the region closest to where you connect from.
-To verify that the global load balancing is directing traffic correctly we can run `curl` from a remote machine in the other region.
-
-Connect to the cluster in the region you are not currently being served from.
-For example if you're in Europe connect to the US cluster.
+Enter the `03-kube-eu/` directory.
 
 ```
-gcloud container clusters get-credentials glb-demo-us --region us-central1
+terraform init
+terraform apply
 ```
 
-Or if you're in the US connect to the Europe cluster.
+## Step 04 - Create resources using manifest files for US Cluster 
+
+Enter the `03-kube-us/` directory.
 
 ```
-gcloud container clusters get-credentials glb-demo-us --region us-central1
+terraform init
+terraform apply
 ```
 
-Then run `curl` to the global IP address on one of the Nodes over an `ssh` connection.
+## Step 05 - Manual Step
 
-```
-ADDRESS=$(terraform output glb_demo_address)
-INSTANCE=$(kubectl get nodes -o json | jq -r '.items[0].metadata.name')
-ZONE=$(kubectl get nodes -o json | jq -r '.items[0].metadata.labels["failure-domain.beta.kubernetes.io/zone"]')
-gcloud compute ssh $INSTANCE --zone $ZONE --command "curl $ADDRESS"
-```
+Read instructions in README.md in folder `05-manual-steps` and follow through.
 
-This should show one of the zones in the other region.
-Repeatedly using curl should cause the zone to change.
+## Step 06 - CLEANUP step, Important ! 
 
-The `zone-printer` is shown when visiting the global IP address directly as it is set as the default backend.
-Because of the URL Map we can also connect to the `hello-web` app by appending `/hello-app` in the browser.
-This should show the `Hello, world!` message.
-
-## Step 05 - Clean Up
-
-Once you've finished testing the load balancer you can clean up the resources.
-
-Enter the `03-glb` directory and run destroy the load balancer resources with Terraform.
-
-```
-terraform destroy
-```
-
-Verify the plan looks correct and enter 'yes' to proceed.
-
-Then enter the `01-clusters` directory and destroy the clusters with Terraform.
-
-```
-terraform destroy
-```
-
-Check the plan again and enter 'yes' to proceed.
-
-## Apps
-
-The apps deployed in this demo are [Zone Printer](https://github.com/GoogleCloudPlatform/k8s-multicluster-ingress/tree/master/examples/zone-printer) and [Hello App](https://github.com/GoogleCloudPlatform/kubernetes-engine-samples/tree/master/hello-app).
+Read instructions in README.md in folder `06-cleanup` and follow through.
