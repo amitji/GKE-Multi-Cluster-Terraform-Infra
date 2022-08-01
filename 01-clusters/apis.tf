@@ -17,7 +17,9 @@ module "project-services" {
     "gkeconnect.googleapis.com",
     "gkehub.googleapis.com",
     "monitoring.googleapis.com",
-    "logging.googleapis.com"
+    "logging.googleapis.com",
+    "gkehub.googleapis.com",
+    "multiclusteringress.googleapis.com"
 
   ]
 }

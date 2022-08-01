@@ -10,7 +10,7 @@ manifest files for these in gcloud manually.
       >> gcloud container clusters get-credentials glb-demo-cluster-us --zone us-central1-a
          gcloud container clusters get-credentials glb-demo-cluster-eu --zone europe-west1-c
     - Enable Multi-cluster Ingress and select cluster in US as the config cluster -
-      >> gcloud alpha container hub ingress update --config-membership=projects/project-gke-multicluster/locations/global/memberships/glb-us
+      >> gcloud alpha container hub ingress enable --config-membership=projects/project-gke-multicluster/locations/global/memberships/glb-us
 
     - upload the mci.yaml & mcs.yaml via gcloud console
     - run MCS and MCI manifest files... 
